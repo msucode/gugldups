@@ -1,0 +1,13 @@
+# Scoring weights
+SCORE_COL1_WEIGHT = 30  # Name
+SCORE_COL2_WEIGHT = 40  # Mobile
+SCORE_COL3_WEIGHT = 15  # Address
+SCORE_COL4_WEIGHT = 15  # Extra
+
+# Thresholds
+THRESHOLD_HIGH = 85
+THRESHOLD_MEDIUM = 70
+THRESHOLD_LOW = 60
+
+# Default duplicate threshold
+DEFAULT_DUPLICATE_THRESHOLD = 80
