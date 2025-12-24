@@ -1,11 +1,13 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from io import BytesIO
+import zipfile
 from utils import convert_to_csv_url, build_yearly_index, get_block_key
 from matcher import find_best_match
 import config
 
-st.title("MSU, MUMBAI, Patient Duplicate Finder")
+st.title("MSU MUMBAI, Patient Duplicate Finder")
 
 yearly_url = st.text_input("Yearly Database Sheet URL")
 daily_url = st.text_input("Today's Linelist URL")
@@ -47,7 +49,7 @@ if 'df_yearly' in st.session_state:
         
         st.info("Comparing...")
         
-        perfect_duplicate_ids = set()  # Only PERFECT matches
+        perfect_duplicate_ids = set()
         all_results = []
         
         for i, daily_row in df_daily.iterrows():
@@ -56,7 +58,6 @@ if 'df_yearly' in st.session_state:
             
             best_match = find_best_match(daily_row, candidates, name_col, mobile_col, addr_col, extra_col)
             
-            # Only PERFECT matches (4/4 columns) are duplicates
             if best_match and best_match['match_type'] == '🟢 PERFECT':
                 perfect_duplicate_ids.add(i)
                 status = "PERFECT DUPLICATE"
@@ -92,13 +93,11 @@ if 'df_yearly' in st.session_state:
                 
                 all_results.append(result)
         
-        # Split files: Only PERFECT duplicates vs everything else
         df_perfect_duplicates = df_daily[df_daily.index.isin(perfect_duplicate_ids)]
         df_new_records = df_daily[~df_daily.index.isin(perfect_duplicate_ids)]
         
         st.success(f"✅ {len(df_perfect_duplicates)} PERFECT DUPLICATES | {len(df_new_records)} TO UPLOAD")
         
-        # Display results
         if all_results:
             df_results = pd.DataFrame(all_results)
             
@@ -113,40 +112,36 @@ if 'df_yearly' in st.session_state:
                 st.subheader(f"📋 To Upload - New & Partial Matches ({len(others)})")
                 st.dataframe(others, use_container_width=True)
         
-        # Generate filenames with Indian date format DD_MM_YYYY
+        # Generate filenames
         today = datetime.now()
         date_str = today.strftime("%d_%m_%Y")
         
         duplicates_filename = f"{date_str}_possibleDuplicate.csv"
         new_records_filename = f"{date_str}_DailyLinelist.csv"
         
-        # Download buttons
+        # Create ZIP file with both CSVs
+        zip_buffer = BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            if len(df_perfect_duplicates) > 0:
+                zip_file.writestr(duplicates_filename, df_perfect_duplicates.to_csv(index=False))
+            
+            if len(df_new_records) > 0:
+                zip_file.writestr(new_records_filename, df_new_records.to_csv(index=False))
+        
+        zip_buffer.seek(0)
+        
+        # Single download button
         st.subheader("📂 Download Files")
         
         col_a, col_b = st.columns(2)
-        
         with col_a:
             st.metric("Perfect Duplicates", len(df_perfect_duplicates))
-            st.caption("Keep for records - Don't upload")
-            if len(df_perfect_duplicates) > 0:
-                st.download_button(
-                    "📥 Download Duplicates",
-                    df_perfect_duplicates.to_csv(index=False),
-                    duplicates_filename,
-                    key='dup'
-                )
-            else:
-                st.info("No perfect duplicates found")
-        
         with col_b:
             st.metric("New Records to Upload", len(df_new_records))
-            st.caption("Upload these to yearly database")
-            if len(df_new_records) > 0:
-                st.download_button(
-                    "📥 Download New Records",
-                    df_new_records.to_csv(index=False),
-                    new_records_filename,
-                    key='new'
-                )
-            else:
-                st.info("No new records to upload")
+        
+        st.download_button(
+            "📥 Download Both Files (ZIP)",
+            zip_buffer,
+            f"{date_str}_DeduplicationResults.zip",
+            mime="application/zip"
+        )
