@@ -39,7 +39,7 @@ def load_credentials():
         return True
     return False
 
-st.title("Patient Duplicate Finder - Google Sheets Auto Update")
+st.title("MSU MUMBAI : Patient Duplicate Finder - Google Sheets Auto Update")
 
 # Try loading from secrets first
 if load_credentials():
