@@ -1,6 +1,7 @@
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
+import numpy as np
 
 def authenticate_google_sheets(json_keyfile_path):
     """Authenticate with Google Sheets API"""
@@ -31,8 +32,18 @@ def create_or_clear_sheet(spreadsheet, sheet_name):
         return worksheet
 
 def write_df_to_sheet(worksheet, df):
-    """Write DataFrame to worksheet"""
-    worksheet.update([df.columns.values.tolist()] + df.values.tolist())
+    """Write DataFrame to worksheet - handles NaN values"""
+    # Replace NaN, None, inf with empty string
+    df_clean = df.replace([np.nan, np.inf, -np.inf, None], '', regex=False)
+    
+    # Convert all values to strings to avoid JSON issues
+    df_clean = df_clean.astype(str)
+    
+    # Replace 'nan' strings with empty strings
+    df_clean = df_clean.replace('nan', '', regex=False)
+    
+    # Write to sheet
+    worksheet.update([df_clean.columns.values.tolist()] + df_clean.values.tolist())
 
 def delete_rows_by_indices(worksheet, row_indices):
     """Delete specific rows from worksheet"""
