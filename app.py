@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import json
 from datetime import datetime
 from utils import build_yearly_index, get_block_key
 from matcher import find_best_match
@@ -29,16 +30,30 @@ def clean_dataframe_for_display(df):
             df[col] = df[col].astype(str).replace('nan', '').replace('NA', '')
     return df
 
+def load_credentials():
+    """Load credentials from Streamlit secrets or allow upload"""
+    if "gcp_service_account" in st.secrets:
+        creds = dict(st.secrets["gcp_service_account"])
+        with open("credentials.json", "w") as f:
+            json.dump(creds, f)
+        return True
+    return False
+
 st.title("Patient Duplicate Finder - Google Sheets Auto Update")
-st.info("⚠️ This app requires Google Sheets API credentials. Upload your service account JSON file.")
 
-uploaded_file = st.file_uploader("Upload Google Service Account JSON", type=['json'])
-
-if uploaded_file:
-    with open("credentials.json", "wb") as f:
-        f.write(uploaded_file.getbuffer())
-    st.success("✅ Credentials loaded")
+# Try loading from secrets first
+if load_credentials():
+    st.success("✅ Credentials loaded from secrets")
     st.session_state['credentials_ready'] = True
+else:
+    st.info("⚠️ Upload your service account JSON file (only needed once if you add to Streamlit secrets)")
+    uploaded_file = st.file_uploader("Upload Google Service Account JSON", type=['json'])
+    
+    if uploaded_file:
+        with open("credentials.json", "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        st.success("✅ Credentials loaded")
+        st.session_state['credentials_ready'] = True
 
 if st.session_state.get('credentials_ready', False):
     yearly_url = st.text_input("Yearly Database Sheet URL")
