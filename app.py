@@ -78,7 +78,9 @@ if 'df_yearly' in st.session_state:
                     'Daily_Patient Address': daily_row.get('Patient Address', ''),
                     'Yearly_Patient Address': best_match['yearly_row'].get('Patient Address', ''),
                     'Daily_Facility Name Lform': daily_row.get('Facility Name Lform', ''),
-                    'Yearly_Facility Name Lform': best_match['yearly_row'].get('Facility Name Lform', '')
+                    'Yearly_Facility Name Lform': best_match['yearly_row'].get('Facility Name Lform', ''),
+                    'Daily_Date Of Onset': daily_row.get('Date Of Onset', ''),
+                    'Yearly_Date Of Onset': best_match['yearly_row'].get('Date Of Onset', '')
                 }
                 
                 if best_match['is_exact']:
