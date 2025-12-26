@@ -142,22 +142,27 @@ if st.session_state.get('credentials_ready', False):
                             'Yearly_Date Of Onset': clean_value(best_match['yearly_row'].get('Date Of Onset', ''))
                         }
                     else:
+                        # Fuzzy match - show both percentage AND emoji
+                        col1_emoji = '✅' if best_match['col1_pct'] >= 80 else '❌'
+                        col3_emoji = '✅' if best_match['col3_pct'] >= 80 else '❌'
+                        col4_emoji = '✅' if best_match['col4_pct'] >= 80 else '❌'
+                        
                         result = {
                             'Daily_Rec': i+1,
                             'Match_Type': best_match['match_type'],
                             'Score': best_match['score'],
                             'Daily_Col1': clean_value(daily_row[name_col]),
                             'Yearly_Col1': clean_value(best_match['yearly_row'][name_col]),
-                            'Col1%': f"{int(best_match['col1_pct'])}%",
+                            'Col1': f"{col1_emoji} {int(best_match['col1_pct'])}%",
                             'Daily_Col2': clean_value(daily_row[mobile_col]),
                             'Yearly_Col2': clean_value(best_match['yearly_row'][mobile_col]),
                             'Col2': '✅' if best_match['col2_match'] else '❌',
                             'Daily_Col3': str(clean_value(daily_row[addr_col]))[:50],
                             'Yearly_Col3': str(clean_value(best_match['yearly_row'][addr_col]))[:50],
-                            'Col3%': f"{int(best_match['col3_pct'])}%",
+                            'Col3': f"{col3_emoji} {int(best_match['col3_pct'])}%",
                             'Daily_Col4': str(clean_value(daily_row[extra_col]))[:50],
                             'Yearly_Col4': str(clean_value(best_match['yearly_row'][extra_col]))[:50],
-                            'Col4%': f"{int(best_match['col4_pct'])}%",
+                            'Col4': f"{col4_emoji} {int(best_match['col4_pct'])}%",
                             'Daily_Patient Address': clean_value(daily_row.get('Patient Address', '')),
                             'Yearly_Patient Address': clean_value(best_match['yearly_row'].get('Patient Address', '')),
                             'Daily_Facility Name Lform': clean_value(daily_row.get('Facility Name Lform', '')),
