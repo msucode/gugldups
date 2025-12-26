@@ -1,29 +1,61 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from utils import convert_to_csv_url, build_yearly_index, get_block_key
+from utils import build_yearly_index, get_block_key
 from matcher import find_best_match
+from google_sheets import (
+    authenticate_google_sheets, 
+    get_sheet_by_url, 
+    read_sheet_to_df,
+    create_or_clear_sheet,
+    write_df_to_sheet,
+    delete_rows_by_indices
+)
 import config
 
-st.title("Patient Duplicate Finder")
+st.title("Patient Duplicate Finder - Google Sheets Auto Update")
 
-yearly_url = st.text_input("Yearly Database Sheet URL")
-daily_url = st.text_input("Today's Linelist URL")
+st.info("⚠️ This app requires Google Sheets API credentials. Upload your service account JSON file.")
 
-if st.button("Load Sheets"):
-    if yearly_url and daily_url:
-        try:
-            df_yearly = pd.read_csv(convert_to_csv_url(yearly_url))
-            df_daily = pd.read_csv(convert_to_csv_url(daily_url))
-            
-            st.session_state['df_yearly'] = df_yearly
-            st.session_state['df_daily'] = df_daily
-            st.session_state['files_ready'] = False
-            
-            st.success(f"✅ {len(df_yearly)} yearly, {len(df_daily)} daily")
-            st.write("**Columns:**", list(df_daily.columns[:15]))
-        except Exception as e:
-            st.error(f"❌ {e}")
+uploaded_file = st.file_uploader("Upload Google Service Account JSON", type=['json'])
+
+if uploaded_file:
+    # Save uploaded file temporarily
+    with open("credentials.json", "wb") as f:
+        f.write(uploaded_file.getbuffer())
+    
+    st.success("✅ Credentials loaded")
+    st.session_state['credentials_ready'] = True
+
+if st.session_state.get('credentials_ready', False):
+    yearly_url = st.text_input("Yearly Database Sheet URL")
+    daily_url = st.text_input("Today's Daily Sheet URL (will be modified)")
+    
+    if st.button("Load Sheets"):
+        if yearly_url and daily_url:
+            try:
+                client = authenticate_google_sheets("credentials.json")
+                
+                yearly_spreadsheet = get_sheet_by_url(client, yearly_url)
+                daily_spreadsheet = get_sheet_by_url(client, daily_url)
+                
+                yearly_worksheet = yearly_spreadsheet.sheet1
+                daily_worksheet = daily_spreadsheet.sheet1
+                
+                df_yearly = read_sheet_to_df(yearly_worksheet)
+                df_daily = read_sheet_to_df(daily_worksheet)
+                
+                st.session_state['client'] = client
+                st.session_state['daily_spreadsheet'] = daily_spreadsheet
+                st.session_state['daily_worksheet'] = daily_worksheet
+                st.session_state['df_yearly'] = df_yearly
+                st.session_state['df_daily'] = df_daily
+                st.session_state['files_ready'] = False
+                
+                st.success(f"✅ {len(df_yearly)} yearly, {len(df_daily)} daily")
+                st.write("**Columns:**", list(df_daily.columns[:15]))
+            except Exception as e:
+                st.error(f"❌ {e}")
 
 if 'df_yearly' in st.session_state:
     cols = list(st.session_state['df_daily'].columns)
@@ -39,7 +71,7 @@ if 'df_yearly' in st.session_state:
         addr_col = st.selectbox("Column 3 (Address)", cols, key='col3')
         extra_col = st.selectbox("Column 4 (Extra)", cols, key='col4')
     
-    if st.button("🔍 Find Duplicates"):
+    if st.button("🔍 Find Duplicates & Update Sheets"):
         df_yearly = st.session_state['df_yearly']
         df_daily = st.session_state['df_daily']
         
@@ -50,6 +82,7 @@ if 'df_yearly' in st.session_state:
         
         perfect_duplicate_ids = set()
         all_match_results = []
+        perfect_match_results = []
         
         for i, daily_row in df_daily.iterrows():
             block_key = get_block_key(daily_row[mobile_col])
@@ -57,11 +90,9 @@ if 'df_yearly' in st.session_state:
             
             best_match = find_best_match(daily_row, candidates, name_col, mobile_col, addr_col, extra_col)
             
-            # Track PERFECT duplicates
             if best_match and best_match['match_type'] == '🟢 PERFECT':
                 perfect_duplicate_ids.add(i)
             
-            # Store ALL matches for duplicate file (comparison view)
             if best_match:
                 result = {
                     'Daily_Rec': i+1,
@@ -99,79 +130,47 @@ if 'df_yearly' in st.session_state:
                     })
                 
                 all_match_results.append(result)
+                
+                if best_match['match_type'] == '🟢 PERFECT':
+                    perfect_match_results.append(result)
         
-        # DUPLICATE FILE: All match comparisons
-        df_duplicate_comparisons = pd.DataFrame(all_match_results) if all_match_results else pd.DataFrame()
+        df_all_duplicates = pd.DataFrame(all_match_results) if all_match_results else pd.DataFrame()
+        df_perfect_only = pd.DataFrame(perfect_match_results) if perfect_match_results else pd.DataFrame()
         
-        # NEW RECORDS FILE: Original daily records EXCEPT perfect duplicates
-        df_new_records = df_daily[~df_daily.index.isin(perfect_duplicate_ids)]
+        st.success(f"✅ Found {len(perfect_duplicate_ids)} PERFECT duplicates | {len(all_match_results)} total matches")
         
-        # Store in session state
-        st.session_state['df_duplicate_comparisons'] = df_duplicate_comparisons
-        st.session_state['df_new_records'] = df_new_records
-        st.session_state['perfect_count'] = len(perfect_duplicate_ids)
-        st.session_state['files_ready'] = True
-        
-        st.success(f"✅ {len(perfect_duplicate_ids)} PERFECT duplicates excluded | {len(df_new_records)} records to upload")
-        
-        # Display results
-        if not df_duplicate_comparisons.empty:
-            perfect = df_duplicate_comparisons[df_duplicate_comparisons['Match_Type'] == '🟢 PERFECT']
-            others = df_duplicate_comparisons[df_duplicate_comparisons['Match_Type'] != '🟢 PERFECT']
+        # Update Google Sheets
+        try:
+            daily_spreadsheet = st.session_state['daily_spreadsheet']
             
-            if len(perfect) > 0:
-                with st.expander(f"🟢 Perfect Duplicates - Excluded from Upload ({len(perfect)})"):
-                    st.dataframe(perfect, use_container_width=True)
+            st.info("Step 1: Creating 'Possible Duplicates' tab...")
+            if not df_all_duplicates.empty:
+                possible_dup_sheet = create_or_clear_sheet(daily_spreadsheet, "Possible Duplicates")
+                write_df_to_sheet(possible_dup_sheet, df_all_duplicates)
+                st.success(f"✅ Created 'Possible Duplicates' with {len(df_all_duplicates)} rows")
             
-            if len(others) > 0:
-                st.subheader(f"📋 Partial/Fuzzy Matches - Included in Upload ({len(others)})")
-                st.dataframe(others, use_container_width=True)
+            st.info("Step 2: Creating 'Perfect Duplicates' tab...")
+            if not df_perfect_only.empty:
+                perfect_dup_sheet = create_or_clear_sheet(daily_spreadsheet, "Perfect Duplicates")
+                write_df_to_sheet(perfect_dup_sheet, df_perfect_only)
+                st.success(f"✅ Created 'Perfect Duplicates' with {len(df_perfect_only)} rows")
+            
+            st.info("Step 3: Deleting perfect duplicates from Daily sheet...")
+            if perfect_duplicate_ids:
+                daily_worksheet = st.session_state['daily_worksheet']
+                delete_rows_by_indices(daily_worksheet, list(perfect_duplicate_ids))
+                st.success(f"✅ Deleted {len(perfect_duplicate_ids)} perfect duplicates from Daily sheet")
+            
+            st.success("🎉 All updates completed successfully!")
+            
+        except Exception as e:
+            st.error(f"❌ Error updating sheets: {e}")
         
-        if len(df_new_records) > 0:
-            with st.expander(f"✨ Records with No Match ({len(df_daily) - len(all_match_results)})"):
-                st.write("These have no match in yearly database")
-
-# Download buttons - always visible if files are ready
-if st.session_state.get('files_ready', False):
-    st.markdown("---")
-    st.subheader("📂 Download Files")
-    
-    today = datetime.now()
-    date_str = today.strftime("%d_%m_%Y")
-    
-    duplicates_filename = f"{date_str}_possibleDuplicate.csv"
-    new_records_filename = f"{date_str}_DailyLinelist.csv"
-    
-    col_metrics = st.columns(3)
-    with col_metrics[0]:
-        st.metric("Perfect Duplicates", st.session_state.get('perfect_count', 0))
-    with col_metrics[1]:
-        st.metric("To Upload", len(st.session_state['df_new_records']))
-    with col_metrics[2]:
-        st.metric("Match Details", len(st.session_state['df_duplicate_comparisons']))
-    
-    col_btn = st.columns(2)
-    
-    with col_btn[0]:
-        if not st.session_state['df_duplicate_comparisons'].empty:
-            st.download_button(
-                "📥 Download Match Details",
-                st.session_state['df_duplicate_comparisons'].to_csv(index=False),
-                duplicates_filename,
-                key='dup',
-                help="All matches for review (Perfect, Strong, Partial, Fuzzy)"
-            )
-        else:
-            st.info("No matches to download")
-    
-    with col_btn[1]:
-        if not st.session_state['df_new_records'].empty:
-            st.download_button(
-                "📥 Download New Records",
-                st.session_state['df_new_records'].to_csv(index=False),
-                new_records_filename,
-                key='new',
-                help="Records to upload (excludes only Perfect duplicates)"
-            )
-        else:
-            st.info("No new records")
+        # Display preview
+        if not df_all_duplicates.empty:
+            with st.expander("📋 Preview: Possible Duplicates"):
+                st.dataframe(df_all_duplicates.head(10), use_container_width=True)
+        
+        if not df_perfect_only.empty:
+            with st.expander("🟢 Preview: Perfect Duplicates"):
+                st.dataframe(df_perfect_only.head(10), use_container_width=True)
