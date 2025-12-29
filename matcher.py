@@ -4,6 +4,10 @@ import config
 
 def check_exact_match(daily_row, yearly_row, name_col, mobile_col, addr_col, extra_col):
     """Check if names match exactly and categorize by column matches"""
+    # Handle None columns
+    if name_col == 'None' or name_col is None:
+        return None
+    
     daily_name = normalize(daily_row[name_col])
     yearly_name = normalize(yearly_row[name_col])
     
@@ -11,27 +15,43 @@ def check_exact_match(daily_row, yearly_row, name_col, mobile_col, addr_col, ext
         return None
     
     # Count exact matches
-    mobile_match = normalize(daily_row[mobile_col]) == normalize(yearly_row[mobile_col])
-    addr_match = normalize(daily_row[addr_col]) == normalize(yearly_row[addr_col])
-    extra_match = normalize(daily_row[extra_col]) == normalize(yearly_row[extra_col])
-    
     exact_col_count = 1  # Name always matches
-    if mobile_match:
-        exact_col_count += 1
-    if addr_match:
-        exact_col_count += 1
-    if extra_match:
-        exact_col_count += 1
     
-    # Categorize
-    if exact_col_count == 4:
+    mobile_match = False
+    if mobile_col != 'None' and mobile_col is not None:
+        mobile_match = normalize(daily_row[mobile_col]) == normalize(yearly_row[mobile_col])
+        if mobile_match:
+            exact_col_count += 1
+    
+    addr_match = False
+    if addr_col != 'None' and addr_col is not None:
+        addr_match = normalize(daily_row[addr_col]) == normalize(yearly_row[addr_col])
+        if addr_match:
+            exact_col_count += 1
+    
+    extra_match = False
+    if extra_col != 'None' and extra_col is not None:
+        extra_match = normalize(daily_row[extra_col]) == normalize(yearly_row[extra_col])
+        if extra_match:
+            exact_col_count += 1
+    
+    # Categorize based on how many columns were selected and matched
+    selected_count = 1  # Name is always selected if we got here
+    if mobile_col != 'None' and mobile_col is not None:
+        selected_count += 1
+    if addr_col != 'None' and addr_col is not None:
+        selected_count += 1
+    if extra_col != 'None' and extra_col is not None:
+        selected_count += 1
+    
+    if exact_col_count == selected_count:
         match_category = '🟢 PERFECT'
-    elif exact_col_count == 3:
-        match_category = '🎃 STRONG'
-    elif exact_col_count == 2:
-        match_category = '🤖 PARTIAL'
+    elif exact_col_count >= selected_count * 0.75:
+        match_category = '🟢 STRONG'
+    elif exact_col_count >= selected_count * 0.5:
+        match_category = '🟢 PARTIAL'
     else:
-        match_category = '💀 WEAK'
+        match_category = '🟢 WEAK'
     
     return {
         'score': 100,
@@ -46,31 +66,50 @@ def check_exact_match(daily_row, yearly_row, name_col, mobile_col, addr_col, ext
 
 def check_fuzzy_match(daily_row, yearly_row, name_col, mobile_col, addr_col, extra_col):
     """Calculate fuzzy match score"""
-    daily_name = normalize(daily_row[name_col])
-    daily_mobile = normalize(daily_row[mobile_col])
-    daily_addr = normalize(daily_row[addr_col])
-    daily_extra = normalize(daily_row[extra_col])
-    
-    yearly_name = normalize(yearly_row[name_col])
-    yearly_mobile = normalize(yearly_row[mobile_col])
-    yearly_addr = normalize(yearly_row[addr_col])
-    yearly_extra = normalize(yearly_row[extra_col])
-    
-    # Calculate similarities
-    col1_pct = fuzz.token_sort_ratio(daily_name, yearly_name)
-    col2_match = (daily_mobile == yearly_mobile)
-    col3_pct = fuzz.token_set_ratio(daily_addr, yearly_addr)
-    col3_match = (daily_addr == yearly_addr)
-    col4_pct = fuzz.token_set_ratio(daily_extra, yearly_extra)
-    col4_match = (daily_extra == yearly_extra)
-    
-    # Calculate score
     score = 0
-    if col2_match:
-        score += config.SCORE_COL2_WEIGHT
-    score += (col1_pct / 100) * config.SCORE_COL1_WEIGHT
-    score += (col3_pct / 100) * config.SCORE_COL3_WEIGHT
-    score += (col4_pct / 100) * config.SCORE_COL4_WEIGHT
+    total_weight = 0
+    
+    col1_pct = 0
+    col2_match = False
+    col3_pct = 0
+    col4_pct = 0
+    
+    # Column 1 - Name
+    if name_col != 'None' and name_col is not None:
+        daily_name = normalize(daily_row[name_col])
+        yearly_name = normalize(yearly_row[name_col])
+        col1_pct = fuzz.token_sort_ratio(daily_name, yearly_name)
+        score += (col1_pct / 100) * config.SCORE_COL1_WEIGHT
+        total_weight += config.SCORE_COL1_WEIGHT
+    
+    # Column 2 - Mobile (exact match only)
+    if mobile_col != 'None' and mobile_col is not None:
+        daily_mobile = normalize(daily_row[mobile_col])
+        yearly_mobile = normalize(yearly_row[mobile_col])
+        col2_match = (daily_mobile == yearly_mobile)
+        if col2_match:
+            score += config.SCORE_COL2_WEIGHT
+        total_weight += config.SCORE_COL2_WEIGHT
+    
+    # Column 3 - Address
+    if addr_col != 'None' and addr_col is not None:
+        daily_addr = normalize(daily_row[addr_col])
+        yearly_addr = normalize(yearly_row[addr_col])
+        col3_pct = fuzz.token_set_ratio(daily_addr, yearly_addr)
+        score += (col3_pct / 100) * config.SCORE_COL3_WEIGHT
+        total_weight += config.SCORE_COL3_WEIGHT
+    
+    # Column 4 - Extra
+    if extra_col != 'None' and extra_col is not None:
+        daily_extra = normalize(daily_row[extra_col])
+        yearly_extra = normalize(yearly_row[extra_col])
+        col4_pct = fuzz.token_set_ratio(daily_extra, yearly_extra)
+        score += (col4_pct / 100) * config.SCORE_COL4_WEIGHT
+        total_weight += config.SCORE_COL4_WEIGHT
+    
+    # Normalize score to 100 scale based on selected columns
+    if total_weight > 0:
+        score = (score / total_weight) * 100
     
     # Categorize
     if score >= config.THRESHOLD_HIGH:
@@ -89,9 +128,9 @@ def check_fuzzy_match(daily_row, yearly_row, name_col, mobile_col, addr_col, ext
         'col1_pct': col1_pct,
         'col2_match': col2_match,
         'col3_pct': col3_pct,
-        'col3_match': col3_match,
+        'col3_match': False,
         'col4_pct': col4_pct,
-        'col4_match': col4_match,
+        'col4_match': False,
         'is_exact': False
     }
 
