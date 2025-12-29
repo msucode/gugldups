@@ -16,12 +16,17 @@ def normalize(text):
 
 def get_block_key(mobile):
     """Get blocking key from mobile number (last 4 digits)"""
+    if mobile is None:
+        return "XXXX"
     m = str(mobile).strip()[-4:] if mobile else "XXXX"
     return m
 
 def build_yearly_index(df_yearly, mobile_col):
     """Build blocking index for faster search"""
     yearly_blocks = {}
+    if mobile_col is None or mobile_col == 'None':
+        return yearly_blocks
+    
     for idx, row in df_yearly.iterrows():
         key = get_block_key(row[mobile_col])
         if key not in yearly_blocks:
@@ -32,6 +37,9 @@ def build_yearly_index(df_yearly, mobile_col):
 def build_name_index(df_yearly, name_col):
     """Build name-based blocking index"""
     name_blocks = {}
+    if name_col is None or name_col == 'None':
+        return name_blocks
+    
     for idx, row in df_yearly.iterrows():
         key = normalize(row[name_col])
         if key and key != "":
