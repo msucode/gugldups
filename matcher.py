@@ -27,11 +27,11 @@ def check_exact_match(daily_row, yearly_row, name_col, mobile_col, addr_col, ext
     if exact_col_count == 4:
         match_category = '🟢 PERFECT'
     elif exact_col_count == 3:
-        match_category = '🟢 STRONG'
+        match_category = '🎃 STRONG'
     elif exact_col_count == 2:
-        match_category = '🟢 PARTIAL'
+        match_category = '🤖 PARTIAL'
     else:
-        match_category = '🟢 WEAK'
+        match_category = '💀 WEAK'
     
     return {
         'score': 100,
