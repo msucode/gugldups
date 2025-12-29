@@ -28,3 +28,14 @@ def build_yearly_index(df_yearly, mobile_col):
             yearly_blocks[key] = []
         yearly_blocks[key].append(row)
     return yearly_blocks
+
+def build_name_index(df_yearly, name_col):
+    """Build name-based blocking index"""
+    name_blocks = {}
+    for idx, row in df_yearly.iterrows():
+        key = normalize(row[name_col])
+        if key and key != "":
+            if key not in name_blocks:
+                name_blocks[key] = []
+            name_blocks[key].append(row)
+    return name_blocks
