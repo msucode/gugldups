@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import json
 from datetime import datetime
-from utils import build_yearly_index, get_block_key
+from utils import build_yearly_index, build_name_index, get_block_key, normalize
 from matcher import find_best_match
 from google_sheets import (
     authenticate_google_sheets,
@@ -39,7 +39,7 @@ def load_credentials():
         return True
     return False
 
-st.title("MSU MUMBAI : Patient Duplicate Finder - Google Sheets Auto Update")
+st.title("Patient Duplicate Finder - Google Sheets Auto Update")
 
 # Try loading from secrets first
 if load_credentials():
@@ -100,8 +100,11 @@ if st.session_state.get('credentials_ready', False):
             df_yearly = st.session_state['df_yearly']
             df_daily = st.session_state['df_daily']
             
-            st.info("Building index...")
+            st.info("Building mobile index...")
             yearly_blocks = build_yearly_index(df_yearly, mobile_col)
+            
+            st.info("Building name index...")
+            name_blocks = build_name_index(df_yearly, name_col)
             
             st.info("Comparing...")
             perfect_duplicate_ids = set()
@@ -109,8 +112,15 @@ if st.session_state.get('credentials_ready', False):
             perfect_match_results = []
             
             for i, daily_row in df_daily.iterrows():
+                # Try mobile blocking first
                 block_key = get_block_key(daily_row[mobile_col])
                 candidates = yearly_blocks.get(block_key, [])
+                
+                # If no mobile match, try name blocking
+                if len(candidates) == 0:
+                    name_key = normalize(daily_row[name_col])
+                    candidates = name_blocks.get(name_key, [])
+                
                 best_match = find_best_match(daily_row, candidates, name_col, mobile_col, addr_col, extra_col)
                 
                 if best_match and best_match['match_type'] == '🟢 PERFECT':
