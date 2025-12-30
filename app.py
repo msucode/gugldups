@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import json
 from datetime import datetime
-from utils import build_yearly_index, build_name_index, get_block_key, normalize
+from utils import build_yearly_index, build_name_index, get_block_key, normalize, get_name_key
 from matcher import find_best_match
 from google_sheets import (
     authenticate_google_sheets,
@@ -102,7 +102,16 @@ if st.session_state.get('credentials_ready', False):
         if len(selected_cols) == 0:
             st.warning("⚠️ Select at least 1 column to compare")
         else:
-            if st.button("🔍 Find Duplicates & Update Sheets"):
+            st.markdown("---")
+            st.subheader("Run Settings")
+            
+            # --- SAFE MODE TOGGLE ---
+            safe_mode = st.checkbox("🛡️ Safe Mode (Preview Only - No Deletions)", value=True, help="If checked, the app will FIND duplicates but NOT delete them or modify your sheets.")
+            
+            btn_label = "🔍 Find Duplicates (Preview)" if safe_mode else "🚀 Find & DELETE Duplicates"
+            btn_type = "primary" if not safe_mode else "secondary"
+
+            if st.button(btn_label, type=btn_type):
                 df_yearly = st.session_state['df_yearly']
                 df_daily = st.session_state['df_daily']
                 
@@ -124,9 +133,10 @@ if st.session_state.get('credentials_ready', False):
                         block_key = get_block_key(daily_row[mobile_col])
                         candidates = yearly_blocks.get(block_key, [])
                     
-                    # If no mobile match, try name blocking if name column selected
+                    # If no mobile match, try name blocking (FIRST WORD ONLY)
                     if len(candidates) == 0 and name_col != 'None':
-                        name_key = normalize(daily_row[name_col])
+                        # UPDATED LINE: Use the new helper to get the first word
+                        name_key = get_name_key(daily_row[name_col])
                         candidates = name_blocks.get(name_key, [])
                     
                     # If still no candidates and no blocking columns selected, use all yearly records
@@ -139,6 +149,7 @@ if st.session_state.get('credentials_ready', False):
                         perfect_duplicate_ids.add(i)
                     
                     if best_match:
+                        # Prepare result dictionary
                         if best_match['is_exact']:
                             result = {
                                 'Daily_Rec': i+1,
@@ -172,6 +183,7 @@ if st.session_state.get('credentials_ready', False):
                                     'Col4': '✅' if best_match.get('extra_match', False) else '❌'
                                 })
                             
+                            # Safely get optional columns
                             result.update({
                                 'Daily_Patient Address': clean_value(daily_row.get('Patient Address', '')),
                                 'Yearly_Patient Address': clean_value(best_match['yearly_row'].get('Patient Address', '')),
@@ -216,6 +228,7 @@ if st.session_state.get('credentials_ready', False):
                                     'Col4': f"{col4_emoji} {int(best_match.get('col4_pct', 0))}%"
                                 })
                             
+                            # Safely get optional columns
                             result.update({
                                 'Daily_Patient Address': clean_value(daily_row.get('Patient Address', '')),
                                 'Yearly_Patient Address': clean_value(best_match['yearly_row'].get('Patient Address', '')),
@@ -234,31 +247,41 @@ if st.session_state.get('credentials_ready', False):
                 
                 st.success(f"✅ Found {len(perfect_duplicate_ids)} PERFECT duplicates | {len(all_match_results)} total matches")
                 
-                # Update Google Sheets
-                try:
-                    daily_spreadsheet = st.session_state['daily_spreadsheet']
-                    
-                    st.info("Step 1: Creating 'Possible Duplicates' tab...")
-                    if not df_all_duplicates.empty:
-                        possible_dup_sheet = create_or_clear_sheet(daily_spreadsheet, "Possible Duplicates")
-                        write_df_to_sheet(possible_dup_sheet, df_all_duplicates)
-                        st.success(f"✅ Created 'Possible Duplicates' with {len(df_all_duplicates)} rows")
-                    
-                    st.info("Step 2: Creating 'Perfect Duplicates' tab...")
-                    if not df_perfect_only.empty:
-                        perfect_dup_sheet = create_or_clear_sheet(daily_spreadsheet, "Perfect Duplicates")
-                        write_df_to_sheet(perfect_dup_sheet, df_perfect_only)
-                        st.success(f"✅ Created 'Perfect Duplicates' with {len(df_perfect_only)} rows")
-                    
-                    st.info("Step 3: Deleting perfect duplicates from Daily sheet...")
-                    if perfect_duplicate_ids:
-                        daily_worksheet = st.session_state['daily_worksheet']
-                        delete_rows_by_indices(daily_worksheet, list(perfect_duplicate_ids))
-                        st.success(f"✅ Deleted {len(perfect_duplicate_ids)} perfect duplicates from Daily sheet")
-                    
-                    st.success("🎉 All updates completed successfully!")
-                except Exception as e:
-                    st.error(f"❌ Error updating sheets: {e}")
+                # Update Google Sheets (ONLY IF NOT IN SAFE MODE)
+                if not safe_mode:
+                    try:
+                        daily_spreadsheet = st.session_state['daily_spreadsheet']
+                        
+                        st.info("Step 1: Creating 'Possible Duplicates' tab...")
+                        if not df_all_duplicates.empty:
+                            possible_dup_sheet = create_or_clear_sheet(daily_spreadsheet, "Possible Duplicates")
+                            write_df_to_sheet(possible_dup_sheet, df_all_duplicates)
+                            st.success(f"✅ Created 'Possible Duplicates' with {len(df_all_duplicates)} rows")
+                        
+                        st.info("Step 2: Creating 'Perfect Duplicates' tab...")
+                        if not df_perfect_only.empty:
+                            perfect_dup_sheet = create_or_clear_sheet(daily_spreadsheet, "Perfect Duplicates")
+                            write_df_to_sheet(perfect_dup_sheet, df_perfect_only)
+                            st.success(f"✅ Created 'Perfect Duplicates' with {len(df_perfect_only)} rows")
+                        
+                        st.info("Step 3: Deleting perfect duplicates from Daily sheet...")
+                        if perfect_duplicate_ids:
+                            daily_worksheet = st.session_state['daily_worksheet']
+                            delete_rows_by_indices(daily_worksheet, list(perfect_duplicate_ids))
+                            st.success(f"✅ Deleted {len(perfect_duplicate_ids)} perfect duplicates from Daily sheet")
+                        
+                        st.success("🎉 All updates completed successfully!")
+                    except Exception as e:
+                        st.error(f"❌ Error updating sheets: {e}")
+                else:
+                    # SAFE MODE SUMMARY
+                    st.warning("🛡️ SAFE MODE ACTIVE: No changes made to Google Sheets.")
+                    st.markdown(f"""
+                    **If you disable Safe Mode, this would happen:**
+                    * Create 'Possible Duplicates' tab with **{len(df_all_duplicates)}** rows
+                    * Create 'Perfect Duplicates' tab with **{len(df_perfect_only)}** rows
+                    * 🗑️ **DELETE {len(perfect_duplicate_ids)} rows** from the Daily sheet
+                    """)
                 
                 # Display preview with cleaned data
                 if not df_all_duplicates.empty:
