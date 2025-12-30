@@ -46,7 +46,7 @@ def load_credentials():
         
     return False
 
-st.title("Patient Duplicate Finder - Google Sheets Auto Update")
+st.title("MSU MUMBAI, Patient Duplicate Finder")
 
 # Try loading credentials automatically
 if load_credentials():
