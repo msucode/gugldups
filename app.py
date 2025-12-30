@@ -79,6 +79,11 @@ if st.session_state.get('credentials_ready', False):
                 
                 df_yearly = read_sheet_to_df(yearly_worksheet)
                 df_daily = read_sheet_to_df(daily_worksheet)
+
+                # --- FIX: STRIP WHITESPACE FROM COLUMN NAMES ---
+                # This prevents "Age " (with space) from breaking the code
+                df_yearly.columns = df_yearly.columns.str.strip()
+                df_daily.columns = df_daily.columns.str.strip()
                 
                 st.session_state['client'] = client
                 st.session_state['daily_spreadsheet'] = daily_spreadsheet
@@ -93,22 +98,30 @@ if st.session_state.get('credentials_ready', False):
                 st.error(f"❌ {e}")
     
     if 'df_yearly' in st.session_state:
-        cols = ['None'] + list(st.session_state['df_daily'].columns)
+        # Get columns from BOTH sheets
+        daily_cols = ['None'] + list(st.session_state['df_daily'].columns)
+        yearly_cols = ['None'] + list(st.session_state['df_yearly'].columns)
         
-        st.subheader("Select Columns (Map your data)")
+        st.subheader("1. Map Comparison Columns (Daily Sheet)")
         col1, col2 = st.columns(2)
         with col1:
-            name_col = st.selectbox("Column 1 (Name)", cols, key='col1')
-            mobile_col = st.selectbox("Column 2 (Mobile)", cols, key='col2')
+            name_col = st.selectbox("Column 1 (Name)", daily_cols, key='col1')
+            mobile_col = st.selectbox("Column 2 (Mobile)", daily_cols, key='col2')
         with col2:
-            addr_col = st.selectbox("Column 3 (Address)", cols, key='col3')
-            extra_col = st.selectbox("Column 4 (Extra)", cols, key='col4')
+            addr_col = st.selectbox("Column 3 (Address)", daily_cols, key='col3')
+            extra_col = st.selectbox("Column 4 (Extra)", daily_cols, key='col4')
             
-        # Select Age Column explicitly
-        st.subheader("Select Age Column")
-        age_col = st.selectbox("Age Column (Required for side-by-side view)", cols, key='col_age')
+        st.markdown("---")
+        st.subheader("2. Map Age Columns (For Report Only)")
+        st.info("Select the column that contains 'Age' in each sheet.")
         
-        # Check at least one column selected
+        col_age1, col_age2 = st.columns(2)
+        with col_age1:
+            daily_age_col = st.selectbox("Daily Sheet Age Column", daily_cols, key='d_age')
+        with col_age2:
+            yearly_age_col = st.selectbox("Yearly Sheet Age Column", yearly_cols, key='y_age')
+        
+        # Check at least one matching column selected
         selected_cols = [c for c in [name_col, mobile_col, addr_col, extra_col] if c != 'None']
         
         if len(selected_cols) == 0:
@@ -203,12 +216,11 @@ if st.session_state.get('credentials_ready', False):
                                     'Col4': '✅' if best_match.get('extra_match', False) else '❌'
                                 })
                             
-                            # --- FORCE AGE COLUMN ---
-                            if age_col != 'None':
-                                result.update({
-                                    'Daily_Age': clean_value(daily_row.get(age_col, '')),
-                                    'Yearly_Age': clean_value(best_match['yearly_row'].get(age_col, ''))
-                                })
+                            # --- FORCE AGE COLUMN (ROBUST) ---
+                            if daily_age_col != 'None':
+                                result['Daily_Age'] = clean_value(daily_row.get(daily_age_col, ''))
+                            if yearly_age_col != 'None':
+                                result['Yearly_Age'] = clean_value(best_match['yearly_row'].get(yearly_age_col, ''))
                             
                             # Standard Extra Columns
                             result.update({
@@ -255,12 +267,11 @@ if st.session_state.get('credentials_ready', False):
                                     'Col4': f"{col4_emoji} {int(best_match.get('col4_pct', 0))}%"
                                 })
                             
-                            # --- FORCE AGE COLUMN ---
-                            if age_col != 'None':
-                                result.update({
-                                    'Daily_Age': clean_value(daily_row.get(age_col, '')),
-                                    'Yearly_Age': clean_value(best_match['yearly_row'].get(age_col, ''))
-                                })
+                            # --- FORCE AGE COLUMN (ROBUST) ---
+                            if daily_age_col != 'None':
+                                result['Daily_Age'] = clean_value(daily_row.get(daily_age_col, ''))
+                            if yearly_age_col != 'None':
+                                result['Yearly_Age'] = clean_value(best_match['yearly_row'].get(yearly_age_col, ''))
 
                             result.update({
                                 'Daily_Patient Address': clean_value(daily_row.get('Patient Address', '')),
