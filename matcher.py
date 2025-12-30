@@ -134,23 +134,23 @@ def check_fuzzy_match(daily_row, yearly_row, name_col, mobile_col, addr_col, ext
         'is_exact': False
     }
 
-def find_best_match(daily_row, candidates, name_col, mobile_col, addr_col, extra_col):
-    """Find best match from candidates"""
-    best_match = None
-    best_score = 0
+def find_all_matches(daily_row, candidates, name_col, mobile_col, addr_col, extra_col):
+    """Find ALL matches from candidates that meet criteria"""
+    matches = []
     
     for yearly_row in candidates:
         # Try exact match first
         exact = check_exact_match(daily_row, yearly_row, name_col, mobile_col, addr_col, extra_col)
-        if exact and exact['score'] > best_score:
-            best_match = exact
-            best_score = exact['score']
-            continue
+        if exact:
+            matches.append(exact)
+            continue # If exact match found, skip fuzzy check for this specific row
         
         # Try fuzzy match
         fuzzy = check_fuzzy_match(daily_row, yearly_row, name_col, mobile_col, addr_col, extra_col)
-        if fuzzy and fuzzy['score'] > best_score:
-            best_match = fuzzy
-            best_score = fuzzy['score']
+        if fuzzy:
+            matches.append(fuzzy)
     
-    return best_match
+    # Sort matches by score descending (best matches first)
+    matches.sort(key=lambda x: x['score'], reverse=True)
+    
+    return matches
