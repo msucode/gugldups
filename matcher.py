@@ -65,7 +65,7 @@ def check_exact_match(daily_row, yearly_row, name_col, mobile_col, addr_col, ext
     }
 
 def check_fuzzy_match(daily_row, yearly_row, name_col, mobile_col, addr_col, extra_col):
-    """Calculate fuzzy match score"""
+    """Calculate fuzzy match score with IDENTITY GATEKEEPER"""
     score = 0
     total_weight = 0
     
@@ -74,22 +74,39 @@ def check_fuzzy_match(daily_row, yearly_row, name_col, mobile_col, addr_col, ext
     col3_pct = 0
     col4_pct = 0
     
+    # --- STEP 1: CHECK IDENTITY COLUMNS (Name & Mobile) ---
+    
     # Column 1 - Name
     if name_col != 'None' and name_col is not None:
         daily_name = normalize(daily_row[name_col])
         yearly_name = normalize(yearly_row[name_col])
         col1_pct = fuzz.token_sort_ratio(daily_name, yearly_name)
-        score += (col1_pct / 100) * config.SCORE_COL1_WEIGHT
-        total_weight += config.SCORE_COL1_WEIGHT
-    
+        # Add to score later, we need to check the value first
+        
     # Column 2 - Mobile (exact match only)
     if mobile_col != 'None' and mobile_col is not None:
         daily_mobile = normalize(daily_row[mobile_col])
         yearly_mobile = normalize(yearly_row[mobile_col])
         col2_match = (daily_mobile == yearly_mobile)
+    
+    # --- KILLER LOGIC: GATEKEEPER ---
+    # If Name is NOT similar (<50%) AND Mobile does NOT match...
+    # STOP IMMEDIATELY. Do not check Address/Disease.
+    if col1_pct < 50 and not col2_match:
+        return None
+    # --------------------------------
+    
+    # If we passed the gate, calculate the actual weights
+    if name_col != 'None':
+        score += (col1_pct / 100) * config.SCORE_COL1_WEIGHT
+        total_weight += config.SCORE_COL1_WEIGHT
+        
+    if mobile_col != 'None':
         if col2_match:
             score += config.SCORE_COL2_WEIGHT
         total_weight += config.SCORE_COL2_WEIGHT
+
+    # --- STEP 2: CHECK ATTRIBUTE COLUMNS (Address & Extra) ---
     
     # Column 3 - Address
     if addr_col != 'None' and addr_col is not None:
