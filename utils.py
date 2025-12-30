@@ -9,25 +9,34 @@ def convert_to_csv_url(url):
     return url
 
 def normalize(text):
-    """Normalize text for comparison"""
+    """Normalize text for comparison - AGGRESSIVE CLEANING"""
     if pd.isna(text):
         return ""
-    return str(text).lower().strip()
+    
+    s = str(text).lower().strip()
+    
+    # Kill common garbage strings that cause false matches
+    if s in ['nan', 'na', 'none', 'null', '0', '']:
+        return ""
+        
+    return s
 
 def get_block_key(mobile):
-    """Get blocking key from mobile number (last 4 digits)"""
-    if mobile is None:
-        return "XXXX"
-    m = str(mobile).strip()[-4:] if mobile else "XXXX"
-    return m
+    """Get blocking key from mobile (last 4 digits) - IGNORES BAD NUMBERS"""
+    m = normalize(mobile)
+    
+    # If mobile is empty or too short, return None (Do not block/group by this)
+    if not m or len(m) < 4:
+        return None
+        
+    return m[-4:]
 
 def get_name_key(name):
     """Get blocking key from name (First Word Only)"""
-    # This fixes the issue where spelling errors in last name caused 0 matches
     norm = normalize(name)
     if not norm:
-        return ""
-    # Split by space and take the first part (e.g. "shreeniwas")
+        return None
+    # Split by space and take the first part
     return norm.split()[0]
 
 def build_yearly_index(df_yearly, mobile_col):
@@ -38,9 +47,12 @@ def build_yearly_index(df_yearly, mobile_col):
     
     for idx, row in df_yearly.iterrows():
         key = get_block_key(row[mobile_col])
-        if key not in yearly_blocks:
-            yearly_blocks[key] = []
-        yearly_blocks[key].append(row)
+        
+        # FIX: Only index if we have a valid key
+        if key:
+            if key not in yearly_blocks:
+                yearly_blocks[key] = []
+            yearly_blocks[key].append(row)
     return yearly_blocks
 
 def build_name_index(df_yearly, name_col):
@@ -50,10 +62,10 @@ def build_name_index(df_yearly, name_col):
         return name_blocks
     
     for idx, row in df_yearly.iterrows():
-        # Use the new helper to get first word
         key = get_name_key(row[name_col])
         
-        if key and key != "":
+        # FIX: Only index if we have a valid key
+        if key:
             if key not in name_blocks:
                 name_blocks[key] = []
             name_blocks[key].append(row)
