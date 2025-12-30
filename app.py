@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import json
+import os  # <--- Added to check for local file
 from datetime import datetime
 from utils import build_yearly_index, build_name_index, get_block_key, normalize, get_name_key
 from matcher import find_all_matches
@@ -31,29 +32,36 @@ def clean_dataframe_for_display(df):
     return df
 
 def load_credentials():
-    """Load credentials from Streamlit secrets or allow upload"""
+    """Load credentials from Secrets OR Local File (Auto-Login)"""
+    # 1. Check Streamlit Secrets (Cloud)
     if "gcp_service_account" in st.secrets:
         creds = dict(st.secrets["gcp_service_account"])
         with open("credentials.json", "w") as f:
             json.dump(creds, f)
         return True
+    
+    # 2. Check Local File (The Fix: If file exists, skip upload)
+    if os.path.exists("credentials.json"):
+        return True
+        
     return False
 
 st.title("Patient Duplicate Finder - Google Sheets Auto Update")
 
-# Try loading from secrets first
+# Try loading credentials automatically
 if load_credentials():
-    st.success("✅ Credentials loaded from secrets")
+    st.success("✅ Credentials loaded (found saved 'credentials.json')")
     st.session_state['credentials_ready'] = True
 else:
-    st.info("⚠️ Upload your service account JSON file (only needed once if you add to Streamlit secrets)")
+    st.info("⚠️ Upload your service account JSON file (First time only)")
     uploaded_file = st.file_uploader("Upload Google Service Account JSON", type=['json'])
     
     if uploaded_file:
         with open("credentials.json", "wb") as f:
             f.write(uploaded_file.getbuffer())
-        st.success("✅ Credentials loaded")
+        st.success("✅ Credentials saved! You won't need to upload this again.")
         st.session_state['credentials_ready'] = True
+        st.rerun() # Refresh to clear the uploader
 
 if st.session_state.get('credentials_ready', False):
     yearly_url = st.text_input("Yearly Database Sheet URL")
@@ -131,18 +139,21 @@ if st.session_state.get('credentials_ready', False):
                     candidates = []
                     if mobile_col != 'None':
                         block_key = get_block_key(daily_row[mobile_col])
-                        candidates = yearly_blocks.get(block_key, [])
+                        # Only use mobile block if it returned a valid key (not None)
+                        if block_key: 
+                            candidates = yearly_blocks.get(block_key, [])
                     
                     # If no mobile match, try name blocking (FIRST WORD ONLY)
                     if len(candidates) == 0 and name_col != 'None':
                         name_key = get_name_key(daily_row[name_col])
-                        candidates = name_blocks.get(name_key, [])
+                        if name_key:
+                            candidates = name_blocks.get(name_key, [])
                     
                     # If still no candidates and no blocking columns selected, use all yearly records
                     if len(candidates) == 0 and mobile_col == 'None' and name_col == 'None':
                         candidates = [row for _, row in df_yearly.iterrows()]
                     
-                    # --- CHANGED: Get ALL matches, not just best ---
+                    # --- Get ALL matches, not just best ---
                     found_matches = find_all_matches(daily_row, candidates, name_col, mobile_col, addr_col, extra_col)
                     
                     # Check if ANY match is perfect (to trigger deletion of daily row)
@@ -163,6 +174,7 @@ if st.session_state.get('credentials_ready', False):
                                 'Score': best_match['score']
                             }
                             
+                            # Add columns only if selected
                             if name_col != 'None':
                                 result.update({
                                     'Daily_Col1': clean_value(daily_row[name_col]),
@@ -188,6 +200,7 @@ if st.session_state.get('credentials_ready', False):
                                     'Col4': '✅' if best_match.get('extra_match', False) else '❌'
                                 })
                             
+                            # Safely get optional columns
                             result.update({
                                 'Daily_Patient Address': clean_value(daily_row.get('Patient Address', '')),
                                 'Yearly_Patient Address': clean_value(best_match['yearly_row'].get('Patient Address', '')),
@@ -232,6 +245,7 @@ if st.session_state.get('credentials_ready', False):
                                     'Col4': f"{col4_emoji} {int(best_match.get('col4_pct', 0))}%"
                                 })
                             
+                            # Safely get optional columns
                             result.update({
                                 'Daily_Patient Address': clean_value(daily_row.get('Patient Address', '')),
                                 'Yearly_Patient Address': clean_value(best_match['yearly_row'].get('Patient Address', '')),
