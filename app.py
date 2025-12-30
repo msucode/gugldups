@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import json
-import os  # <--- Added to check for local file
+import os
 from datetime import datetime
 from utils import build_yearly_index, build_name_index, get_block_key, normalize, get_name_key
 from matcher import find_all_matches
@@ -40,13 +40,13 @@ def load_credentials():
             json.dump(creds, f)
         return True
     
-    # 2. Check Local File (The Fix: If file exists, skip upload)
+    # 2. Check Local File
     if os.path.exists("credentials.json"):
         return True
         
     return False
 
-st.title("MSU MUMBAI, Patient Duplicate Finder")
+st.title("Patient Duplicate Finder - Google Sheets Auto Update")
 
 # Try loading credentials automatically
 if load_credentials():
@@ -61,7 +61,7 @@ else:
             f.write(uploaded_file.getbuffer())
         st.success("✅ Credentials saved! You won't need to upload this again.")
         st.session_state['credentials_ready'] = True
-        st.rerun() # Refresh to clear the uploader
+        st.rerun()
 
 if st.session_state.get('credentials_ready', False):
     yearly_url = st.text_input("Yearly Database Sheet URL")
@@ -95,11 +95,12 @@ if st.session_state.get('credentials_ready', False):
     if 'df_yearly' in st.session_state:
         cols = ['None'] + list(st.session_state['df_daily'].columns)
         
-        st.subheader("Select Columns (minimum 1 required)")
+        st.subheader("Select Columns (Map your data)")
         col1, col2 = st.columns(2)
         with col1:
             name_col = st.selectbox("Column 1 (Name)", cols, key='col1')
             mobile_col = st.selectbox("Column 2 (Mobile)", cols, key='col2')
+            age_col = st.selectbox("Column 5 (Age) - Optional", cols, key='col5') # <--- NEW INPUT
         with col2:
             addr_col = st.selectbox("Column 3 (Address)", cols, key='col3')
             extra_col = st.selectbox("Column 4 (Extra)", cols, key='col4')
@@ -135,28 +136,27 @@ if st.session_state.get('credentials_ready', False):
                 perfect_match_results = []
                 
                 for i, daily_row in df_daily.iterrows():
-                    # Try mobile blocking first if mobile column selected
+                    # Try mobile blocking
                     candidates = []
                     if mobile_col != 'None':
                         block_key = get_block_key(daily_row[mobile_col])
-                        # Only use mobile block if it returned a valid key (not None)
                         if block_key: 
                             candidates = yearly_blocks.get(block_key, [])
                     
-                    # If no mobile match, try name blocking (FIRST WORD ONLY)
+                    # Try name blocking
                     if len(candidates) == 0 and name_col != 'None':
                         name_key = get_name_key(daily_row[name_col])
                         if name_key:
                             candidates = name_blocks.get(name_key, [])
                     
-                    # If still no candidates and no blocking columns selected, use all yearly records
+                    # Fallback to all rows
                     if len(candidates) == 0 and mobile_col == 'None' and name_col == 'None':
                         candidates = [row for _, row in df_yearly.iterrows()]
                     
-                    # --- Get ALL matches, not just best ---
+                    # Get ALL matches
                     found_matches = find_all_matches(daily_row, candidates, name_col, mobile_col, addr_col, extra_col)
                     
-                    # Check if ANY match is perfect (to trigger deletion of daily row)
+                    # Check for perfect deletion trigger
                     is_perfect_deletion = False
                     for match in found_matches:
                         if match['match_type'] == '🟢 PERFECT':
@@ -165,7 +165,7 @@ if st.session_state.get('credentials_ready', False):
                     if is_perfect_deletion:
                         perfect_duplicate_ids.add(i)
                     
-                    # Process ALL matches for reporting
+                    # Process matches for reporting
                     for best_match in found_matches:
                         if best_match['is_exact']:
                             result = {
@@ -200,7 +200,13 @@ if st.session_state.get('credentials_ready', False):
                                     'Col4': '✅' if best_match.get('extra_match', False) else '❌'
                                 })
                             
-                            # Safely get optional columns
+                            # Safely get optional columns (USING USER SELECTION)
+                            if age_col != 'None':
+                                result.update({
+                                    'Daily_Age': clean_value(daily_row.get(age_col, '')),
+                                    'Yearly_Age': clean_value(best_match['yearly_row'].get(age_col, ''))
+                                })
+
                             result.update({
                                 'Daily_Patient Address': clean_value(daily_row.get('Patient Address', '')),
                                 'Yearly_Patient Address': clean_value(best_match['yearly_row'].get('Patient Address', '')),
@@ -245,7 +251,13 @@ if st.session_state.get('credentials_ready', False):
                                     'Col4': f"{col4_emoji} {int(best_match.get('col4_pct', 0))}%"
                                 })
                             
-                            # Safely get optional columns
+                            # Safely get optional columns (USING USER SELECTION)
+                            if age_col != 'None':
+                                result.update({
+                                    'Daily_Age': clean_value(daily_row.get(age_col, '')),
+                                    'Yearly_Age': clean_value(best_match['yearly_row'].get(age_col, ''))
+                                })
+
                             result.update({
                                 'Daily_Patient Address': clean_value(daily_row.get('Patient Address', '')),
                                 'Yearly_Patient Address': clean_value(best_match['yearly_row'].get('Patient Address', '')),
