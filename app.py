@@ -4,7 +4,7 @@ import numpy as np
 import json
 from datetime import datetime
 from utils import build_yearly_index, build_name_index, get_block_key, normalize, get_name_key
-from matcher import find_best_match
+from matcher import find_all_matches
 from google_sheets import (
     authenticate_google_sheets,
     get_sheet_by_url,
@@ -135,7 +135,6 @@ if st.session_state.get('credentials_ready', False):
                     
                     # If no mobile match, try name blocking (FIRST WORD ONLY)
                     if len(candidates) == 0 and name_col != 'None':
-                        # UPDATED LINE: Use the new helper to get the first word
                         name_key = get_name_key(daily_row[name_col])
                         candidates = name_blocks.get(name_key, [])
                     
@@ -143,13 +142,20 @@ if st.session_state.get('credentials_ready', False):
                     if len(candidates) == 0 and mobile_col == 'None' and name_col == 'None':
                         candidates = [row for _, row in df_yearly.iterrows()]
                     
-                    best_match = find_best_match(daily_row, candidates, name_col, mobile_col, addr_col, extra_col)
+                    # --- CHANGED: Get ALL matches, not just best ---
+                    found_matches = find_all_matches(daily_row, candidates, name_col, mobile_col, addr_col, extra_col)
                     
-                    if best_match and best_match['match_type'] == '🟢 PERFECT':
+                    # Check if ANY match is perfect (to trigger deletion of daily row)
+                    is_perfect_deletion = False
+                    for match in found_matches:
+                        if match['match_type'] == '🟢 PERFECT':
+                            is_perfect_deletion = True
+                            
+                    if is_perfect_deletion:
                         perfect_duplicate_ids.add(i)
                     
-                    if best_match:
-                        # Prepare result dictionary
+                    # Process ALL matches for reporting
+                    for best_match in found_matches:
                         if best_match['is_exact']:
                             result = {
                                 'Daily_Rec': i+1,
@@ -157,7 +163,6 @@ if st.session_state.get('credentials_ready', False):
                                 'Score': best_match['score']
                             }
                             
-                            # Add columns only if selected
                             if name_col != 'None':
                                 result.update({
                                     'Daily_Col1': clean_value(daily_row[name_col]),
@@ -183,7 +188,6 @@ if st.session_state.get('credentials_ready', False):
                                     'Col4': '✅' if best_match.get('extra_match', False) else '❌'
                                 })
                             
-                            # Safely get optional columns
                             result.update({
                                 'Daily_Patient Address': clean_value(daily_row.get('Patient Address', '')),
                                 'Yearly_Patient Address': clean_value(best_match['yearly_row'].get('Patient Address', '')),
@@ -228,7 +232,6 @@ if st.session_state.get('credentials_ready', False):
                                     'Col4': f"{col4_emoji} {int(best_match.get('col4_pct', 0))}%"
                                 })
                             
-                            # Safely get optional columns
                             result.update({
                                 'Daily_Patient Address': clean_value(daily_row.get('Patient Address', '')),
                                 'Yearly_Patient Address': clean_value(best_match['yearly_row'].get('Patient Address', '')),
@@ -245,7 +248,7 @@ if st.session_state.get('credentials_ready', False):
                 df_all_duplicates = pd.DataFrame(all_match_results) if all_match_results else pd.DataFrame()
                 df_perfect_only = pd.DataFrame(perfect_match_results) if perfect_match_results else pd.DataFrame()
                 
-                st.success(f"✅ Found {len(perfect_duplicate_ids)} PERFECT duplicates | {len(all_match_results)} total matches")
+                st.success(f"✅ Found {len(perfect_duplicate_ids)} PERFECT duplicate rows (marked for deletion) | {len(all_match_results)} total duplicate pairings found")
                 
                 # Update Google Sheets (ONLY IF NOT IN SAFE MODE)
                 if not safe_mode:
