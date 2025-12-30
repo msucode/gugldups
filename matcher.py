@@ -19,7 +19,12 @@ def check_exact_match(daily_row, yearly_row, name_col, mobile_col, addr_col, ext
     
     mobile_match = False
     if mobile_col != 'None' and mobile_col is not None:
-        mobile_match = normalize(daily_row[mobile_col]) == normalize(yearly_row[mobile_col])
+        d_mob = normalize(daily_row[mobile_col])
+        y_mob = normalize(yearly_row[mobile_col])
+        # FIX: Only match if both are NOT empty
+        if d_mob != "" and y_mob != "":
+            mobile_match = (d_mob == y_mob)
+        
         if mobile_match:
             exact_col_count += 1
     
@@ -65,7 +70,7 @@ def check_exact_match(daily_row, yearly_row, name_col, mobile_col, addr_col, ext
     }
 
 def check_fuzzy_match(daily_row, yearly_row, name_col, mobile_col, addr_col, extra_col):
-    """Calculate fuzzy match score with IDENTITY GATEKEEPER"""
+    """Calculate fuzzy match score with IDENTITY GATEKEEPER & EMPTY FIX"""
     score = 0
     total_weight = 0
     
@@ -81,13 +86,17 @@ def check_fuzzy_match(daily_row, yearly_row, name_col, mobile_col, addr_col, ext
         daily_name = normalize(daily_row[name_col])
         yearly_name = normalize(yearly_row[name_col])
         col1_pct = fuzz.token_sort_ratio(daily_name, yearly_name)
-        # Add to score later, we need to check the value first
         
     # Column 2 - Mobile (exact match only)
     if mobile_col != 'None' and mobile_col is not None:
         daily_mobile = normalize(daily_row[mobile_col])
         yearly_mobile = normalize(yearly_row[mobile_col])
-        col2_match = (daily_mobile == yearly_mobile)
+        
+        # FIX: Only set True if both are NOT empty and match
+        if daily_mobile != "" and yearly_mobile != "":
+            col2_match = (daily_mobile == yearly_mobile)
+        else:
+            col2_match = False
     
     # --- KILLER LOGIC: GATEKEEPER ---
     # If Name is NOT similar (<50%) AND Mobile does NOT match...
