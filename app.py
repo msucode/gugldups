@@ -85,7 +85,12 @@ if st.session_state.get('credentials_ready', False):
                 st.error(f"❌ {e}")
     
     if 'df_yearly' in st.session_state:
-        cols = ['None'] + list(st.session_state['df_daily'].columns)
+        # FIX: Find common columns to prevent KeyError if a column exists in Daily but not Yearly
+        daily_cols = st.session_state['df_daily'].columns.tolist()
+        yearly_cols = st.session_state['df_yearly'].columns.tolist()
+        common_cols = [c for c in daily_cols if c in yearly_cols]
+        
+        cols = ['None'] + common_cols
         
         st.subheader("Select Columns (minimum 1 required)")
         col1, col2 = st.columns(2)
@@ -106,11 +111,18 @@ if st.session_state.get('credentials_ready', False):
                 df_yearly = st.session_state['df_yearly']
                 df_daily = st.session_state['df_daily']
                 
-                st.info("Building mobile index...")
-                yearly_blocks = build_yearly_index(df_yearly, mobile_col if mobile_col != 'None' else None)
+                # FIX: Only build indices if a valid column is selected
+                if mobile_col != 'None':
+                    st.info("Building mobile index...")
+                    yearly_blocks = build_yearly_index(df_yearly, mobile_col)
+                else:
+                    yearly_blocks = {}
                 
-                st.info("Building name index...")
-                name_blocks = build_name_index(df_yearly, name_col if name_col != 'None' else None)
+                if name_col != 'None':
+                    st.info("Building name index...")
+                    name_blocks = build_name_index(df_yearly, name_col)
+                else:
+                    name_blocks = {}
                 
                 st.info("Comparing...")
                 perfect_duplicate_ids = set()
@@ -118,8 +130,9 @@ if st.session_state.get('credentials_ready', False):
                 perfect_match_results = []
                 
                 for i, daily_row in df_daily.iterrows():
-                    # Try mobile blocking first if mobile column selected
                     candidates = []
+                    
+                    # Try mobile blocking first if mobile column selected
                     if mobile_col != 'None':
                         block_key = get_block_key(daily_row[mobile_col])
                         candidates = yearly_blocks.get(block_key, [])
@@ -263,8 +276,8 @@ if st.session_state.get('credentials_ready', False):
                 # Display preview with cleaned data
                 if not df_all_duplicates.empty:
                     with st.expander("📋 Preview: Possible Duplicates"):
-                        st.dataframe(clean_dataframe_for_display(df_all_duplicates.head(10)), width='stretch')
+                        st.dataframe(clean_dataframe_for_display(df_all_duplicates.head(10)), use_container_width=True)
                 
                 if not df_perfect_only.empty:
                     with st.expander("🟢 Preview: Perfect Duplicates"):
-                        st.dataframe(clean_dataframe_for_display(df_perfect_only.head(10)), width='stretch')
+                        st.dataframe(clean_dataframe_for_display(df_perfect_only.head(10)), use_container_width=True)
