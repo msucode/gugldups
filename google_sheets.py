@@ -2,7 +2,6 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
 import numpy as np
-import time
 
 def authenticate_google_sheets(json_keyfile_path):
     """Authenticate with Google Sheets API"""
@@ -58,12 +57,29 @@ def write_df_to_sheet(worksheet, df):
     worksheet.update([df_clean.columns.values.tolist()] + df_clean.values.tolist())
 
 def delete_rows_by_indices(worksheet, row_indices):
-    """Delete specific rows from worksheet"""
-    # Sort in reverse to delete from bottom to top
+    """Delete specific rows from worksheet using a single batch API request to avoid 429 Quota errors"""
+    if not row_indices:
+        return
+        
+    # Sort in reverse to delete from bottom to top safely
     sorted_indices = sorted(row_indices, reverse=True)
     
+    requests = []
     for idx in sorted_indices:
-        # +2 because: +1 for header row, +1 for 1-based indexing
-        worksheet.delete_rows(idx + 2)
-        # Sleep to respect Google Sheets API write limits (60 per minute)
-        time.sleep(1.2)
+        # Google Sheets API uses 0-based indexing for dimensions.
+        # df index 0 is row 2 in the sheet. In 0-based dimension indexing, row 2 is index 1.
+        # So start index is idx + 1, end index is idx + 2 (exclusive).
+        requests.append({
+            "deleteDimension": {
+                "range": {
+                    "sheetId": worksheet.id,
+                    "dimension": "ROWS",
+                    "startIndex": idx + 1,
+                    "endIndex": idx + 2
+                }
+            }
+        })
+        
+    if requests:
+        body = {"requests": requests}
+        worksheet.spreadsheet.batch_update(body)
