@@ -40,8 +40,7 @@ def load_credentials():
         return True
     return False
 
-# Notice the 'v2.0' - If you don't see this in your app, it means the old code is still running!
-st.title("Patient Duplicate Finder (v2.0) - Google Sheets Auto Update")
+st.title("Patient Duplicate Finder (v3.0) - UI Updated")
 
 if load_credentials():
     st.success("✅ Credentials loaded from secrets")
@@ -78,24 +77,37 @@ if st.session_state.get('credentials_ready', False):
                 st.session_state['daily_worksheet'] = daily_worksheet
                 st.session_state['df_yearly'] = df_yearly
                 st.session_state['df_daily'] = df_daily
-                st.session_state['files_ready'] = False
                 
                 st.success(f"✅ {len(df_yearly)} yearly, {len(df_daily)} daily")
-                st.write("**Columns:**", list(df_daily.columns[:15]))
             except Exception as e:
-                st.error(f"❌ {e}")
+                st.error(f"❌ Error loading sheets: {e}")
     
     if 'df_yearly' in st.session_state:
-        cols = ['None'] + list(st.session_state['df_daily'].columns)
+        daily_cols = ['None'] + list(st.session_state['df_daily'].columns)
+        yearly_cols = ['None'] + list(st.session_state['df_yearly'].columns)
         
-        st.subheader("Select Columns (minimum 1 required)")
+        # --- Section 1: Comparison Columns ---
+        st.markdown("### 1. Map Comparison Columns (Daily Sheet)")
         col1, col2 = st.columns(2)
         with col1:
-            name_col = st.selectbox("Column 1 (Name)", cols, key='col1')
-            mobile_col = st.selectbox("Column 2 (Mobile)", cols, key='col2')
+            name_col = st.selectbox("Column 1 (Name)", daily_cols, key='col1')
+            mobile_col = st.selectbox("Column 2 (Mobile)", daily_cols, key='col2')
         with col2:
-            addr_col = st.selectbox("Column 3 (Address)", cols, key='col3')
-            extra_col = st.selectbox("Column 4 (Extra)", cols, key='col4')
+            addr_col = st.selectbox("Column 3 (Address)", daily_cols, key='col3')
+            extra_col = st.selectbox("Column 4 (Extra)", daily_cols, key='col4')
+            
+        st.markdown("---")
+        
+        # --- Section 2: Age Columns ---
+        st.markdown("### 2. Map Age Columns (For Report Only)")
+        st.info("Select the column that contains 'Age' in each sheet.")
+        age_col1, age_col2 = st.columns(2)
+        with age_col1:
+            daily_age_col = st.selectbox("Daily Sheet Age Column", daily_cols, key='daily_age')
+        with age_col2:
+            yearly_age_col = st.selectbox("Yearly Sheet Age Column", yearly_cols, key='yearly_age')
+            
+        st.markdown("---")
         
         selected_cols = [c for c in [name_col, mobile_col, addr_col, extra_col] if c != 'None']
         
@@ -106,13 +118,11 @@ if st.session_state.get('credentials_ready', False):
                 df_yearly = st.session_state['df_yearly']
                 df_daily = st.session_state['df_daily']
                 
-                st.info("Building mobile index...")
+                st.info("Building indexes...")
                 yearly_blocks = build_yearly_index(df_yearly, mobile_col if mobile_col != 'None' else None)
-                
-                st.info("Building name index...")
                 name_blocks = build_name_index(df_yearly, name_col if name_col != 'None' else None)
                 
-                st.info("Comparing...")
+                st.info("Comparing Data...")
                 perfect_duplicate_ids = set()
                 possible_match_results = []
                 perfect_match_results = []
@@ -167,6 +177,13 @@ if st.session_state.get('credentials_ready', False):
                                 'Col4': f"{col4_emoji} {int(best_match.get('col4_pct', 100))}%" if not best_match['is_exact'] else ('✅' if best_match.get('extra_match') else '❌')
                             })
                         
+                        # Fetch Age if mapped
+                        if daily_age_col != 'None':
+                            result['Daily_Age'] = clean_value(daily_row.get(daily_age_col, ''))
+                        if yearly_age_col != 'None':
+                            result['Yearly_Age'] = clean_value(best_match['yearly_row'].get(yearly_age_col, ''))
+
+                        # Fetch Fixed Info (If it exists in sheet)
                         result.update({
                             'Daily_Patient Address': clean_value(daily_row.get('Patient Address', '')),
                             'Yearly_Patient Address': clean_value(best_match['yearly_row'].get('Patient Address', '')),
@@ -176,7 +193,6 @@ if st.session_state.get('credentials_ready', False):
                             'Yearly_Date Of Onset': clean_value(best_match['yearly_row'].get('Date Of Onset', ''))
                         })
                         
-                        # STRICT SEPARATION logic
                         if best_match['match_type'] == '🟢 PERFECT':
                             perfect_match_results.append(result)
                             perfect_duplicate_ids.add(i)
@@ -195,31 +211,22 @@ if st.session_state.get('credentials_ready', False):
                     if not df_possible.empty:
                         possible_dup_sheet = create_or_clear_sheet(daily_spreadsheet, "Possible Duplicates")
                         write_df_to_sheet(possible_dup_sheet, df_possible)
-                        st.success(f"✅ Created 'Possible Duplicates' with {len(df_possible)} rows")
-                    else:
-                        st.success("✅ No possible duplicates found.")
                     
-                    # Pause to avoid rate limits
                     time.sleep(3)
                     
                     st.info("Step 2: Creating 'Perfect Duplicates' tab...")
                     if not df_perfect.empty:
                         perfect_dup_sheet = create_or_clear_sheet(daily_spreadsheet, "Perfect Duplicates")
                         write_df_to_sheet(perfect_dup_sheet, df_perfect)
-                        st.success(f"✅ Created 'Perfect Duplicates' with {len(df_perfect)} rows")
-                    else:
-                        st.success("✅ No perfect duplicates found.")
                         
-                    # Pause again to avoid rate limits
                     time.sleep(3)
                     
-                    st.info("Step 3: Deleting perfect duplicates from Daily sheet (using Batch Update)...")
+                    st.info("Step 3: Deleting perfect duplicates from Daily sheet...")
                     if perfect_duplicate_ids:
                         daily_worksheet = st.session_state['daily_worksheet']
                         delete_rows_by_indices(daily_worksheet, list(perfect_duplicate_ids))
-                        st.success(f"✅ Successfully deleted {len(perfect_duplicate_ids)} perfect duplicates from Daily sheet")
                     
-                    st.success("🎉 All updates completed successfully without any quota errors!")
+                    st.success("🎉 All updates completed successfully!")
                 except Exception as e:
                     st.error(f"❌ Error updating sheets: {e}")
                 
