@@ -17,9 +17,20 @@ def get_sheet_by_url(client, url):
     return client.open_by_url(url)
 
 def read_sheet_to_df(worksheet):
-    """Read worksheet to pandas DataFrame"""
-    data = worksheet.get_all_records()
-    return pd.DataFrame(data)
+    """Read worksheet to pandas DataFrame - handles duplicate/empty headers"""
+    # Fetch all raw data to bypass get_all_records() strictness
+    raw_data = worksheet.get_all_values()
+    
+    # Check if the sheet is empty
+    if not raw_data:
+        return pd.DataFrame()
+        
+    # The first row is the header, the rest is the actual data
+    headers = raw_data[0]
+    data_rows = raw_data[1:]
+    
+    # Create and return a Pandas DataFrame
+    return pd.DataFrame(data_rows, columns=headers)
 
 def create_or_clear_sheet(spreadsheet, sheet_name):
     """Create new sheet or clear existing one"""
