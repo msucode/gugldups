@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import json
+import time
 from datetime import datetime
 from utils import build_yearly_index, build_name_index, get_block_key, normalize
 from matcher import find_best_match
@@ -39,14 +40,14 @@ def load_credentials():
         return True
     return False
 
-st.title("Patient Duplicate Finder - Google Sheets Auto Update")
+# Notice the 'v2.0' - If you don't see this in your app, it means the old code is still running!
+st.title("Patient Duplicate Finder (v2.0) - Google Sheets Auto Update")
 
-# Try loading from secrets first
 if load_credentials():
     st.success("✅ Credentials loaded from secrets")
     st.session_state['credentials_ready'] = True
 else:
-    st.info("⚠️ Upload your service account JSON file (only needed once if you add to Streamlit secrets)")
+    st.info("⚠️ Upload your service account JSON file")
     uploaded_file = st.file_uploader("Upload Google Service Account JSON", type=['json'])
     
     if uploaded_file:
@@ -96,7 +97,6 @@ if st.session_state.get('credentials_ready', False):
             addr_col = st.selectbox("Column 3 (Address)", cols, key='col3')
             extra_col = st.selectbox("Column 4 (Extra)", cols, key='col4')
         
-        # Check at least one column selected
         selected_cols = [c for c in [name_col, mobile_col, addr_col, extra_col] if c != 'None']
         
         if len(selected_cols) == 0:
@@ -118,124 +118,76 @@ if st.session_state.get('credentials_ready', False):
                 perfect_match_results = []
                 
                 for i, daily_row in df_daily.iterrows():
-                    # Try mobile blocking first if mobile column selected
                     candidates = []
                     if mobile_col != 'None':
                         block_key = get_block_key(daily_row[mobile_col])
                         candidates = yearly_blocks.get(block_key, [])
                     
-                    # If no mobile match, try name blocking if name column selected
                     if len(candidates) == 0 and name_col != 'None':
                         name_key = normalize(daily_row[name_col])
                         candidates = name_blocks.get(name_key, [])
                     
-                    # If still no candidates and no blocking columns selected, use all yearly records
                     if len(candidates) == 0 and mobile_col == 'None' and name_col == 'None':
                         candidates = [row for _, row in df_yearly.iterrows()]
                     
                     best_match = find_best_match(daily_row, candidates, name_col, mobile_col, addr_col, extra_col)
                     
                     if best_match:
-                        if best_match['is_exact']:
-                            result = {
-                                'Daily_Rec': i+1,
-                                'Match_Type': best_match['match_type'],
-                                'Score': best_match['score']
-                            }
-                            
-                            # Add columns only if selected
-                            if name_col != 'None':
-                                result.update({
-                                    'Daily_Col1': clean_value(daily_row[name_col]),
-                                    'Yearly_Col1': clean_value(best_match['yearly_row'][name_col]),
-                                    'Col1': '✅'
-                                })
-                            if mobile_col != 'None':
-                                result.update({
-                                    'Daily_Col2': clean_value(daily_row[mobile_col]),
-                                    'Yearly_Col2': clean_value(best_match['yearly_row'][mobile_col]),
-                                    'Col2': '✅' if best_match.get('mobile_match', False) else '❌'
-                                })
-                            if addr_col != 'None':
-                                result.update({
-                                    'Daily_Col3': str(clean_value(daily_row[addr_col]))[:50],
-                                    'Yearly_Col3': str(clean_value(best_match['yearly_row'][addr_col]))[:50],
-                                    'Col3': '✅' if best_match.get('addr_match', False) else '❌'
-                                })
-                            if extra_col != 'None':
-                                result.update({
-                                    'Daily_Col4': str(clean_value(daily_row[extra_col]))[:50],
-                                    'Yearly_Col4': str(clean_value(best_match['yearly_row'][extra_col]))[:50],
-                                    'Col4': '✅' if best_match.get('extra_match', False) else '❌'
-                                })
-                            
+                        result = {
+                            'Daily_Rec': i+1,
+                            'Match_Type': best_match['match_type'],
+                            'Score': best_match['score']
+                        }
+                        
+                        if name_col != 'None':
+                            col1_emoji = '✅' if best_match.get('col1_pct', 0) >= 80 or best_match['is_exact'] else '❌'
                             result.update({
-                                'Daily_Patient Address': clean_value(daily_row.get('Patient Address', '')),
-                                'Yearly_Patient Address': clean_value(best_match['yearly_row'].get('Patient Address', '')),
-                                'Daily_Facility Name Lform': clean_value(daily_row.get('Facility Name Lform', '')),
-                                'Yearly_Facility Name Lform': clean_value(best_match['yearly_row'].get('Facility Name Lform', '')),
-                                'Daily_Date Of Onset': clean_value(daily_row.get('Date Of Onset', '')),
-                                'Yearly_Date Of Onset': clean_value(best_match['yearly_row'].get('Date Of Onset', ''))
+                                'Daily_Col1': clean_value(daily_row[name_col]),
+                                'Yearly_Col1': clean_value(best_match['yearly_row'][name_col]),
+                                'Col1': f"{col1_emoji} {int(best_match.get('col1_pct', 100))}%" if not best_match['is_exact'] else '✅'
                             })
-                        else:
-                            # Fuzzy match
-                            result = {
-                                'Daily_Rec': i+1,
-                                'Match_Type': best_match['match_type'],
-                                'Score': best_match['score']
-                            }
-                            
-                            if name_col != 'None':
-                                col1_emoji = '✅' if best_match.get('col1_pct', 0) >= 80 else '❌'
-                                result.update({
-                                    'Daily_Col1': clean_value(daily_row[name_col]),
-                                    'Yearly_Col1': clean_value(best_match['yearly_row'][name_col]),
-                                    'Col1': f"{col1_emoji} {int(best_match.get('col1_pct', 0))}%"
-                                })
-                            if mobile_col != 'None':
-                                result.update({
-                                    'Daily_Col2': clean_value(daily_row[mobile_col]),
-                                    'Yearly_Col2': clean_value(best_match['yearly_row'][mobile_col]),
-                                    'Col2': '✅' if best_match.get('col2_match', False) else '❌'
-                                })
-                            if addr_col != 'None':
-                                col3_emoji = '✅' if best_match.get('col3_pct', 0) >= 80 else '❌'
-                                result.update({
-                                    'Daily_Col3': str(clean_value(daily_row[addr_col]))[:50],
-                                    'Yearly_Col3': str(clean_value(best_match['yearly_row'][addr_col]))[:50],
-                                    'Col3': f"{col3_emoji} {int(best_match.get('col3_pct', 0))}%"
-                                })
-                            if extra_col != 'None':
-                                col4_emoji = '✅' if best_match.get('col4_pct', 0) >= 80 else '❌'
-                                result.update({
-                                    'Daily_Col4': str(clean_value(daily_row[extra_col]))[:50],
-                                    'Yearly_Col4': str(clean_value(best_match['yearly_row'][extra_col]))[:50],
-                                    'Col4': f"{col4_emoji} {int(best_match.get('col4_pct', 0))}%"
-                                })
-                            
+                        if mobile_col != 'None':
                             result.update({
-                                'Daily_Patient Address': clean_value(daily_row.get('Patient Address', '')),
-                                'Yearly_Patient Address': clean_value(best_match['yearly_row'].get('Patient Address', '')),
-                                'Daily_Facility Name Lform': clean_value(daily_row.get('Facility Name Lform', '')),
-                                'Yearly_Facility Name Lform': clean_value(best_match['yearly_row'].get('Facility Name Lform', '')),
-                                'Daily_Date Of Onset': clean_value(daily_row.get('Date Of Onset', '')),
-                                'Yearly_Date Of Onset': clean_value(best_match['yearly_row'].get('Date Of Onset', ''))
+                                'Daily_Col2': clean_value(daily_row[mobile_col]),
+                                'Yearly_Col2': clean_value(best_match['yearly_row'][mobile_col]),
+                                'Col2': '✅' if best_match.get('col2_match', False) or best_match.get('mobile_match', False) else '❌'
+                            })
+                        if addr_col != 'None':
+                            col3_emoji = '✅' if best_match.get('col3_pct', 0) >= 80 or best_match['is_exact'] else '❌'
+                            result.update({
+                                'Daily_Col3': str(clean_value(daily_row[addr_col]))[:50],
+                                'Yearly_Col3': str(clean_value(best_match['yearly_row'][addr_col]))[:50],
+                                'Col3': f"{col3_emoji} {int(best_match.get('col3_pct', 100))}%" if not best_match['is_exact'] else ('✅' if best_match.get('addr_match') else '❌')
+                            })
+                        if extra_col != 'None':
+                            col4_emoji = '✅' if best_match.get('col4_pct', 0) >= 80 or best_match['is_exact'] else '❌'
+                            result.update({
+                                'Daily_Col4': str(clean_value(daily_row[extra_col]))[:50],
+                                'Yearly_Col4': str(clean_value(best_match['yearly_row'][extra_col]))[:50],
+                                'Col4': f"{col4_emoji} {int(best_match.get('col4_pct', 100))}%" if not best_match['is_exact'] else ('✅' if best_match.get('extra_match') else '❌')
                             })
                         
-                        # IMPORTANT FIX: Strictly separate PERFECT vs POSSIBLE matches
+                        result.update({
+                            'Daily_Patient Address': clean_value(daily_row.get('Patient Address', '')),
+                            'Yearly_Patient Address': clean_value(best_match['yearly_row'].get('Patient Address', '')),
+                            'Daily_Facility Name Lform': clean_value(daily_row.get('Facility Name Lform', '')),
+                            'Yearly_Facility Name Lform': clean_value(best_match['yearly_row'].get('Facility Name Lform', '')),
+                            'Daily_Date Of Onset': clean_value(daily_row.get('Date Of Onset', '')),
+                            'Yearly_Date Of Onset': clean_value(best_match['yearly_row'].get('Date Of Onset', ''))
+                        })
+                        
+                        # STRICT SEPARATION logic
                         if best_match['match_type'] == '🟢 PERFECT':
                             perfect_match_results.append(result)
                             perfect_duplicate_ids.add(i)
                         else:
                             possible_match_results.append(result)
                 
-                # Create separate dataframes
                 df_possible = pd.DataFrame(possible_match_results) if possible_match_results else pd.DataFrame()
                 df_perfect = pd.DataFrame(perfect_match_results) if perfect_match_results else pd.DataFrame()
                 
                 st.success(f"✅ Found {len(perfect_duplicate_ids)} PERFECT duplicates | {len(possible_match_results)} POSSIBLE matches")
                 
-                # Update Google Sheets
                 try:
                     daily_spreadsheet = st.session_state['daily_spreadsheet']
                     
@@ -245,7 +197,10 @@ if st.session_state.get('credentials_ready', False):
                         write_df_to_sheet(possible_dup_sheet, df_possible)
                         st.success(f"✅ Created 'Possible Duplicates' with {len(df_possible)} rows")
                     else:
-                        st.success("✅ No possible duplicates found (empty sheet).")
+                        st.success("✅ No possible duplicates found.")
+                    
+                    # Pause to avoid rate limits
+                    time.sleep(3)
                     
                     st.info("Step 2: Creating 'Perfect Duplicates' tab...")
                     if not df_perfect.empty:
@@ -253,7 +208,10 @@ if st.session_state.get('credentials_ready', False):
                         write_df_to_sheet(perfect_dup_sheet, df_perfect)
                         st.success(f"✅ Created 'Perfect Duplicates' with {len(df_perfect)} rows")
                     else:
-                        st.success("✅ No perfect duplicates found (empty sheet).")
+                        st.success("✅ No perfect duplicates found.")
+                        
+                    # Pause again to avoid rate limits
+                    time.sleep(3)
                     
                     st.info("Step 3: Deleting perfect duplicates from Daily sheet (using Batch Update)...")
                     if perfect_duplicate_ids:
@@ -265,7 +223,6 @@ if st.session_state.get('credentials_ready', False):
                 except Exception as e:
                     st.error(f"❌ Error updating sheets: {e}")
                 
-                # Display preview with cleaned data
                 if not df_possible.empty:
                     with st.expander("📋 Preview: Possible Duplicates"):
                         st.dataframe(clean_dataframe_for_display(df_possible.head(10)), width='stretch')
