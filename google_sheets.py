@@ -2,6 +2,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
 import numpy as np
+import time
 
 def authenticate_google_sheets(json_keyfile_path):
     """Authenticate with Google Sheets API"""
@@ -64,3 +65,5 @@ def delete_rows_by_indices(worksheet, row_indices):
     for idx in sorted_indices:
         # +2 because: +1 for header row, +1 for 1-based indexing
         worksheet.delete_rows(idx + 2)
+        # Sleep to respect Google Sheets API write limits (60 per minute)
+        time.sleep(1.2)
