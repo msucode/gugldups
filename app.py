@@ -114,7 +114,7 @@ if st.session_state.get('credentials_ready', False):
                 
                 st.info("Comparing...")
                 perfect_duplicate_ids = set()
-                all_match_results = []
+                possible_match_results = []
                 perfect_match_results = []
                 
                 for i, daily_row in df_daily.iterrows():
@@ -134,9 +134,6 @@ if st.session_state.get('credentials_ready', False):
                         candidates = [row for _, row in df_yearly.iterrows()]
                     
                     best_match = find_best_match(daily_row, candidates, name_col, mobile_col, addr_col, extra_col)
-                    
-                    if best_match and best_match['match_type'] == '🟢 PERFECT':
-                        perfect_duplicate_ids.add(i)
                     
                     if best_match:
                         if best_match['is_exact']:
@@ -225,47 +222,54 @@ if st.session_state.get('credentials_ready', False):
                                 'Yearly_Date Of Onset': clean_value(best_match['yearly_row'].get('Date Of Onset', ''))
                             })
                         
+                        # IMPORTANT FIX: Strictly separate PERFECT vs POSSIBLE matches
                         if best_match['match_type'] == '🟢 PERFECT':
                             perfect_match_results.append(result)
+                            perfect_duplicate_ids.add(i)
                         else:
-                            all_match_results.append(result)
+                            possible_match_results.append(result)
                 
-                df_all_duplicates = pd.DataFrame(all_match_results) if all_match_results else pd.DataFrame()
-                df_perfect_only = pd.DataFrame(perfect_match_results) if perfect_match_results else pd.DataFrame()
+                # Create separate dataframes
+                df_possible = pd.DataFrame(possible_match_results) if possible_match_results else pd.DataFrame()
+                df_perfect = pd.DataFrame(perfect_match_results) if perfect_match_results else pd.DataFrame()
                 
-                st.success(f"✅ Found {len(perfect_duplicate_ids)} PERFECT duplicates | {len(all_match_results)} total matches")
+                st.success(f"✅ Found {len(perfect_duplicate_ids)} PERFECT duplicates | {len(possible_match_results)} POSSIBLE matches")
                 
                 # Update Google Sheets
                 try:
                     daily_spreadsheet = st.session_state['daily_spreadsheet']
                     
                     st.info("Step 1: Creating 'Possible Duplicates' tab...")
-                    if not df_all_duplicates.empty:
+                    if not df_possible.empty:
                         possible_dup_sheet = create_or_clear_sheet(daily_spreadsheet, "Possible Duplicates")
-                        write_df_to_sheet(possible_dup_sheet, df_all_duplicates)
-                        st.success(f"✅ Created 'Possible Duplicates' with {len(df_all_duplicates)} rows")
+                        write_df_to_sheet(possible_dup_sheet, df_possible)
+                        st.success(f"✅ Created 'Possible Duplicates' with {len(df_possible)} rows")
+                    else:
+                        st.success("✅ No possible duplicates found (empty sheet).")
                     
                     st.info("Step 2: Creating 'Perfect Duplicates' tab...")
-                    if not df_perfect_only.empty:
+                    if not df_perfect.empty:
                         perfect_dup_sheet = create_or_clear_sheet(daily_spreadsheet, "Perfect Duplicates")
-                        write_df_to_sheet(perfect_dup_sheet, df_perfect_only)
-                        st.success(f"✅ Created 'Perfect Duplicates' with {len(df_perfect_only)} rows")
+                        write_df_to_sheet(perfect_dup_sheet, df_perfect)
+                        st.success(f"✅ Created 'Perfect Duplicates' with {len(df_perfect)} rows")
+                    else:
+                        st.success("✅ No perfect duplicates found (empty sheet).")
                     
-                    st.info("Step 3: Deleting perfect duplicates from Daily sheet...")
+                    st.info("Step 3: Deleting perfect duplicates from Daily sheet (using Batch Update)...")
                     if perfect_duplicate_ids:
                         daily_worksheet = st.session_state['daily_worksheet']
                         delete_rows_by_indices(daily_worksheet, list(perfect_duplicate_ids))
-                        st.success(f"✅ Deleted {len(perfect_duplicate_ids)} perfect duplicates from Daily sheet")
+                        st.success(f"✅ Successfully deleted {len(perfect_duplicate_ids)} perfect duplicates from Daily sheet")
                     
-                    st.success("🎉 All updates completed successfully!")
+                    st.success("🎉 All updates completed successfully without any quota errors!")
                 except Exception as e:
                     st.error(f"❌ Error updating sheets: {e}")
                 
                 # Display preview with cleaned data
-                if not df_all_duplicates.empty:
+                if not df_possible.empty:
                     with st.expander("📋 Preview: Possible Duplicates"):
-                        st.dataframe(clean_dataframe_for_display(df_all_duplicates.head(10)), width='stretch')
+                        st.dataframe(clean_dataframe_for_display(df_possible.head(10)), width='stretch')
                 
-                if not df_perfect_only.empty:
+                if not df_perfect.empty:
                     with st.expander("🟢 Preview: Perfect Duplicates"):
-                        st.dataframe(clean_dataframe_for_display(df_perfect_only.head(10)), width='stretch')
+                        st.dataframe(clean_dataframe_for_display(df_perfect.head(10)), width='stretch')
