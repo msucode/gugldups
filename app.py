@@ -16,7 +16,7 @@ from google_sheets import (
 import config
 
 def clean_value(val):
-    """Clean single value: NA string → empty, NaN → empty"""
+    """Clean single value: NA string -> empty, NaN -> empty"""
     if pd.isna(val) or val == 'NA' or val == 'nan' or val == '':
         return ''
     return val
@@ -225,9 +225,10 @@ if st.session_state.get('credentials_ready', False):
                                 'Yearly_Date Of Onset': clean_value(best_match['yearly_row'].get('Date Of Onset', ''))
                             })
                         
-                        all_match_results.append(result)
                         if best_match['match_type'] == '🟢 PERFECT':
                             perfect_match_results.append(result)
+                        else:
+                            all_match_results.append(result)
                 
                 df_all_duplicates = pd.DataFrame(all_match_results) if all_match_results else pd.DataFrame()
                 df_perfect_only = pd.DataFrame(perfect_match_results) if perfect_match_results else pd.DataFrame()
