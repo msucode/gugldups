@@ -31,29 +31,41 @@ def clean_dataframe_for_display(df):
             df[col] = df[col].astype(str).replace('nan', '').replace('NA', '')
     return df
 
-def load_credentials():
-    """Load credentials from Streamlit secrets or allow upload"""
-    if "gcp_service_account" in st.secrets:
-        creds = dict(st.secrets["gcp_service_account"])
-        with open("credentials.json", "w") as f:
-            json.dump(creds, f)
-        return True
-    return False
+def load_credentials_from_secrets():
+    """Load service-account dict from Streamlit secrets, if configured."""
+    try:
+        if "gcp_service_account" in st.secrets:
+            return dict(st.secrets["gcp_service_account"])
+    except Exception:
+        # No secrets.toml / secrets not configured on Cloud
+        pass
+    return None
 
 st.title("Patient Duplicate Finder (v3.0) - UI Updated")
 
-if load_credentials():
-    st.success("✅ Credentials loaded from secrets")
-    st.session_state['credentials_ready'] = True
+# Prefer secrets; fall back to JSON upload (kept in memory, not written to disk)
+if "gcp_credentials" not in st.session_state:
+    secrets_creds = load_credentials_from_secrets()
+    if secrets_creds:
+        st.session_state["gcp_credentials"] = secrets_creds
+        st.session_state["credentials_ready"] = True
+
+if st.session_state.get("credentials_ready", False):
+    st.success("✅ Credentials loaded")
 else:
-    st.info("⚠️ Upload your service account JSON file")
-    uploaded_file = st.file_uploader("Upload Google Service Account JSON", type=['json'])
-    
+    st.info("⚠️ Upload your service account JSON file (or add `[gcp_service_account]` to Streamlit secrets)")
+    uploaded_file = st.file_uploader("Upload Google Service Account JSON", type=["json"])
+
     if uploaded_file:
-        with open("credentials.json", "wb") as f:
-            f.write(uploaded_file.getbuffer())
-        st.success("✅ Credentials loaded")
-        st.session_state['credentials_ready'] = True
+        try:
+            st.session_state["gcp_credentials"] = json.loads(
+                uploaded_file.getvalue().decode("utf-8")
+            )
+            st.session_state["credentials_ready"] = True
+            st.success("✅ Credentials loaded")
+            st.rerun()
+        except Exception as e:
+            st.error(f"❌ Invalid credentials JSON: {e}")
 
 if st.session_state.get('credentials_ready', False):
     yearly_url = st.text_input("Yearly Database Sheet URL")
@@ -62,7 +74,7 @@ if st.session_state.get('credentials_ready', False):
     if st.button("Load Sheets"):
         if yearly_url and daily_url:
             try:
-                client = authenticate_google_sheets("credentials.json")
+                client = authenticate_google_sheets(st.session_state["gcp_credentials"])
                 yearly_spreadsheet = get_sheet_by_url(client, yearly_url)
                 daily_spreadsheet = get_sheet_by_url(client, daily_url)
                 
